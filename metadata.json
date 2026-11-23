@@ -1,0 +1,6 @@
+{
+  "name": "AURA",
+  "description": "AURA Adaptive Human Performance & Fitness Coaching Engine",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
