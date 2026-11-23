@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.aura.data.LaunchPreferences
 import com.example.aura.data.db.AppDatabase
 import com.example.aura.data.db.ExerciseLogEntity
 import com.example.aura.data.db.UnlockedAchievementEntity
@@ -47,6 +48,13 @@ class AuraViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = AppDatabase.getDatabase(application)
     val repository = AuraRepository(database.auraDao())
+    private val launchPreferences = LaunchPreferences(application)
+
+    val hasSeenWelcome: StateFlow<Boolean?> = launchPreferences.hasSeenWelcomeFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val _isAppReady = MutableStateFlow(false)
+    val isAppReady: StateFlow<Boolean> = _isAppReady.asStateFlow()
 
     val userProfile: StateFlow<UserProfile?> = repository.userProfileFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -119,7 +127,7 @@ class AuraViewModel(application: Application) : AndroidViewModel(application) {
 
     // Persistent Onboarding Progress State
     private val onboardingDraftPrefs = application.getSharedPreferences("aura_onboarding_draft", Context.MODE_PRIVATE)
-    private val _onboardingStep = MutableStateFlow(onboardingDraftPrefs.getInt("step", 0).coerceIn(0, 11))
+    private val _onboardingStep = MutableStateFlow(onboardingDraftPrefs.getInt("step", 1).coerceIn(1, 11))
     val onboardingStep: StateFlow<Int> = _onboardingStep.asStateFlow()
 
     // Persisted App Settings & Safety Preferences
@@ -159,6 +167,7 @@ class AuraViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 restorePersistedDraft()
             }
+            _isAppReady.value = true
 
             // Observe subsequent updates
             userProfile.collect { profile ->
@@ -379,9 +388,15 @@ class AuraViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setOnboardingStep(step: Int) {
-        val clamped = step.coerceIn(0, 11)
+        val clamped = step.coerceIn(1, 11)
         _onboardingStep.value = clamped
         onboardingDraftPrefs.edit().putInt("step", clamped).apply()
+    }
+
+    fun markWelcomeSeen() {
+        viewModelScope.launch(Dispatchers.IO) {
+            launchPreferences.setHasSeenWelcome(true)
+        }
     }
 
     private fun persistDraftAsync(p: UserProfile) {
@@ -518,7 +533,7 @@ class AuraViewModel(application: Application) : AndroidViewModel(application) {
             _blueprint.value = freshBp
             _draftProfile.value = finalized
             onboardingDraftPrefs.edit().clear().apply()
-            _onboardingStep.value = 0
+            _onboardingStep.value = 1
             determineTodayWorkoutDayIndex(freshBp)
             WorkoutReminderScheduler.syncReminderSchedule(getApplication(), finalized)
         }
@@ -527,8 +542,8 @@ class AuraViewModel(application: Application) : AndroidViewModel(application) {
     fun retakeOnboarding() {
         val curr = userProfile.value ?: _draftProfile.value
         _draftProfile.value = curr.copy(onboardingCompleted = false)
-        _onboardingStep.value = 0
-        onboardingDraftPrefs.edit().putInt("step", 0).apply()
+        _onboardingStep.value = 1
+        onboardingDraftPrefs.edit().putInt("step", 1).apply()
     }
 
     fun recordWorkoutSession(
@@ -860,10 +875,11 @@ class AuraViewModel(application: Application) : AndroidViewModel(application) {
     fun resetAllData() {
         viewModelScope.launch(Dispatchers.IO) {
             repository.resetAllData()
+            launchPreferences.setHasSeenWelcome(false)
             WorkoutReminderScheduler.cancelReminders(getApplication())
             onboardingDraftPrefs.edit().clear().apply()
             _dayExerciseSwaps.value = emptyMap()
-            _onboardingStep.value = 0
+            _onboardingStep.value = 1
             _draftProfile.value = UserProfile(
                 preferredWorkoutDays = WorkoutScheduleEngine.defaultWorkoutDays(4),
                 onboardingCompleted = false

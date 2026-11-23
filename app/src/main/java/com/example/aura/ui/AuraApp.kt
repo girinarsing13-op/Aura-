@@ -1,9 +1,12 @@
 package com.example.aura.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,6 +14,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.aura.ui.components.DiagnosticsModal
 import com.example.aura.ui.components.DynamicIslandRestPill
@@ -23,10 +27,12 @@ import com.example.aura.ui.components.SettingsModal
 import com.example.aura.ui.components.rememberRestTimerController
 import com.example.aura.ui.screens.DietScreen
 import com.example.aura.ui.screens.HomeScreen
+import com.example.aura.ui.screens.LaunchSplash
 import com.example.aura.ui.screens.OnboardingScreen
 import com.example.aura.ui.screens.ProfileScreen
 import com.example.aura.ui.screens.ProgressScreen
 import com.example.aura.ui.screens.StreaksScreen
+import com.example.aura.ui.screens.WelcomeScreen
 import com.example.aura.ui.screens.WorkoutScreen
 import com.example.aura.ui.theme.AuraTheme
 
@@ -36,6 +42,9 @@ fun AuraApp(
 ) {
     val profile by viewModel.userProfile.collectAsState()
     val draft by viewModel.draftProfile.collectAsState()
+    val hasSeenWelcome by viewModel.hasSeenWelcome.collectAsState()
+    val isAppReady by viewModel.isAppReady.collectAsState()
+    val backupStatus by viewModel.backupStatusMessage.collectAsState()
     val user = profile ?: draft
 
     val liveTransparency by viewModel.liveNavTransparency.collectAsState()
@@ -65,6 +74,29 @@ fun AuraApp(
     var isParqOpen by rememberSaveable { mutableStateOf(false) }
     var isPrivacyOpen by rememberSaveable { mutableStateOf(false) }
 
+    var launchPhase by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val restoreAccountLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importBackupFromUri(uri)
+        }
+    }
+
+    LaunchedEffect(hasSeenWelcome) {
+        if (launchPhase == null && hasSeenWelcome != null) {
+            launchPhase = if (hasSeenWelcome == true) "splash" else "welcome"
+        }
+    }
+
+    LaunchedEffect(profile?.onboardingCompleted, launchPhase) {
+        if (launchPhase == "welcome" && profile?.onboardingCompleted == true) {
+            viewModel.markWelcomeSeen()
+            launchPhase = "app"
+        }
+    }
+
     val restTimerController = rememberRestTimerController()
 
     AuraTheme(
@@ -74,9 +106,42 @@ fun AuraApp(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AuraTheme.colors.background)
+                .background(if (launchPhase != "app") Color(0xFF010204) else AuraTheme.colors.background)
         ) {
-            if (!user.onboardingCompleted) {
+            when (launchPhase) {
+                null -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF010204))
+                    )
+                }
+
+                "welcome" -> {
+                    WelcomeScreen(
+                        backupMessage = backupStatus,
+                        onGetStarted = {
+                            viewModel.clearBackupStatus()
+                            viewModel.markWelcomeSeen()
+                            viewModel.setOnboardingStep(1)
+                            launchPhase = "app"
+                        },
+                        onExistingAccount = {
+                            restoreAccountLauncher.launch(arrayOf("application/json", "*/*"))
+                        }
+                    )
+                }
+
+                "splash" -> {
+                    LaunchSplash(
+                        isAppReady = isAppReady,
+                        onFinished = {
+                            launchPhase = "app"
+                        }
+                    )
+                }
+
+                else -> if (!user.onboardingCompleted) {
                 OnboardingScreen(
                     viewModel = viewModel,
                     onOpenParq = { isParqOpen = true },
@@ -241,6 +306,7 @@ fun AuraApp(
                         }
                     )
                 }
+            }
             }
 
             if (isParqOpen) {

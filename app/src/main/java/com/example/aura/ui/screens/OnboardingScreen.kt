@@ -90,8 +90,10 @@ fun OnboardingScreen(
         }
     }
 
-    BackHandler(enabled = currentStep > STEP_WELCOME && currentStep != STEP_BUILDING) {
-        val target = if (currentStep == STEP_REVEAL) STEP_LAST_QUESTION else currentStep - 1
+    val effectiveStep = currentStep.coerceAtLeast(STEP_FIRST_QUESTION)
+
+    BackHandler(enabled = effectiveStep > STEP_FIRST_QUESTION && effectiveStep != STEP_BUILDING) {
+        val target = if (effectiveStep == STEP_REVEAL) STEP_LAST_QUESTION else effectiveStep - 1
         viewModel.setOnboardingStep(target)
     }
 
@@ -108,29 +110,16 @@ fun OnboardingScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            when (currentStep) {
-                STEP_WELCOME -> {
-                    WelcomeOnboardingScreen(
-                        reducedMotion = reducedMotion,
-                        backupMessage = backupStatus,
-                        onGetStarted = {
-                            viewModel.clearBackupStatus()
-                            viewModel.setOnboardingStep(STEP_FIRST_QUESTION)
-                        },
-                        onRestoreBackup = {
-                            restoreLauncher.launch(arrayOf("application/json", "*/*"))
-                        }
-                    )
-                }
-
+            when (effectiveStep) {
                 in STEP_FIRST_QUESTION..STEP_LAST_QUESTION -> {
                     QuestionOnboardingScaffold(
-                        stepNumber = currentStep,
+                        stepNumber = effectiveStep,
                         draft = draft,
                         reducedMotion = reducedMotion,
-                        onBack = { viewModel.setOnboardingStep(currentStep - 1) },
+                        showBack = effectiveStep > STEP_FIRST_QUESTION,
+                        onBack = { viewModel.setOnboardingStep(effectiveStep - 1) },
                         onContinue = {
-                            if (currentStep == 5) {
+                            if (effectiveStep == 5) {
                                 // Refresh suggested workout slot when transitioning from Day to Setup/Schedule
                                 val suggestion = WorkoutScheduleEngine.suggestBestWorkoutTime(
                                     wakeTimeMinutes = draft.wakeTimeMinutes,
@@ -142,7 +131,7 @@ fun OnboardingScreen(
                                 )
                                 viewModel.updateDraft { it.copy(preferredWorkoutMinutes = suggestion.suggestedMinutes) }
                             }
-                            viewModel.setOnboardingStep(currentStep + 1)
+                            viewModel.setOnboardingStep(effectiveStep + 1)
                         },
                         onUpdate = { viewModel.updateDraft(it) },
                         onToggleAllergy = { viewModel.toggleAllergy(it) }
@@ -273,6 +262,7 @@ private fun QuestionOnboardingScaffold(
     stepNumber: Int,
     draft: UserProfile,
     reducedMotion: Boolean,
+    showBack: Boolean,
     onBack: () -> Unit,
     onContinue: () -> Unit,
     onUpdate: ((UserProfile) -> UserProfile) -> Unit,
@@ -320,18 +310,22 @@ private fun QuestionOnboardingScaffold(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("onboarding_back_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                        contentDescription = "Back",
-                        tint = colors.mutedText,
-                        modifier = Modifier.size(26.dp)
-                    )
+                if (showBack) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("onboarding_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "Back",
+                            tint = colors.mutedText,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.size(height = 48.dp, width = 4.dp))
                 }
 
                 Row(
